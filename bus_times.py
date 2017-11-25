@@ -6,15 +6,14 @@ Transit Information API.
 
 Includes:
 
-get_next_buses(stop_number=default_stop_number, time_format="%-I:%Mpm")
-- returns a dictionary containing the times for the next two buses
-departing from the specified stop.
+get_next_buses(stop_number=default_stop_number) -> (error_message,
+leave_times)
 
 default_stop_number - set this to your favourite stop number to save
-typing one in every time.
+                      typing one in every time.
 
-params - dictionary containing various API parameters including the
-API key to be used.
+params              - dictionary containing various API parameters
+                      including the API key to be used.
 
 To use this module you need to register and acquire an API key
 from Translink from the website link below.
@@ -27,7 +26,7 @@ import requests
 import sys
 from xml.etree import ElementTree
 
-api_key = "{Insert your API key from Translink here}"
+api_key = "mOrnY5iIMYmeMLkYBVUO"
 stops_url = "http://api.translink.ca/RTTIAPI/V1/stops/{}"
 stop_estimates_url = "http://api.translink.ca/RTTIAPI/V1/stops/{}/estimates"
 
@@ -35,38 +34,61 @@ stop_estimates_url = "http://api.translink.ca/RTTIAPI/V1/stops/{}/estimates"
 default_stop_number = 51034 # Arbutus St at W 15 Ave
 
 
-params = {
-    'apiKey': api_key,
-    'Count': 2, # The number of buses to return. Default 6
-    'TimeFrame': 40  # The search time frame in minutes. Default 1440
-    #'RouteNo': # If present, will search for stops specific to route
-}
+def get_next_buses(stop_number=default_stop_number, time_frame=12*60):
+    """get_next_buses(stop_number=default_stop_number) -> (error_message,
+    leave_times)
 
-headers = {'content-type': 'application/json'}  # This doesn't work for some reason
-# Get XML instead.
+    error_message is None if the request was successful or a short
+    string explaining why the request failed.
 
-def get_next_buses(stop_number=default_stop_number):
+    If error_messge is not None, leave_times should be a dictionary
+    containing the times for the next two buses departing from the
+    specified stop.
 
-    r = requests.get(stop_estimates_url.format(stop_number), params=params, headers=headers)
+    Arguments:
+    stop_number - Translink bus stop number where you want to search
+                  for buses from."""
 
-    r.raise_for_status()
+    params = {
+        'apiKey': api_key,
+        'Count': 2, # The number of buses to return. Default 6
+        'TimeFrame': time_frame # The search time frame in minutes. Default 1440
+        #'RouteNo': # If present, will search for stops specific to route
+    }
 
-    root = ElementTree.fromstring(r.content)
+    headers = {'content-type': 'application/json'}  # This doesn't work for some reason
+    # Get XML instead.
 
-    code = None
+
+    try:
+        r = requests.get(stop_estimates_url.format(stop_number),
+                         params=params, headers=headers)
+    except requests.exceptions.ConnectionError:
+        return "CONNECT ERROR", None
+
+    try:
+        r.raise_for_status()
+    except requests.exceptions.HTTPError:
+        return "HTTP ERROR {}".format(r.status_code), None
+
+    try:
+        root = ElementTree.fromstring(r.content)
+    except ElementTree.ParseError:
+        return "PARSE ERROR", None
+
+    error_code = None
     buses = []
 
     for child in root:
         if child.tag == 'Code':
-            code = child.text
+            error_code = child.text
         if child.tag == 'Message':
             message = child.text
         if child.tag == 'NextBus':
             buses.append(child)
 
-    if code:
-        print("Error code {}: {}".format(code, message))
-        return None
+    if error_code:
+        return "API ERROR {}}".format(error_code), None
 
     leave_times = {}
 
@@ -78,8 +100,8 @@ def get_next_buses(stop_number=default_stop_number):
         for s in schedules:
             times.append(s.find('ExpectedLeaveTime').text)
         leave_times[route] = times
-    return leave_times
 
+    return None, leave_times
 
 
 if __name__ == "__main__":
